@@ -12,16 +12,16 @@
   "HYPE|lose": "多"
  },
  "last": {
-  "全幣種|win": 34.67,
-  "全幣種|lose": 78.95,
-  "BTC|win": 27.48,
-  "BTC|lose": 77.05,
-  "ETH|win": 29.74,
-  "ETH|lose": 81.81,
-  "SOL|win": 12.49,
-  "SOL|lose": 89.23,
-  "HYPE|win": 51.11,
-  "HYPE|lose": 75.8
+  "全幣種|win": 36.03,
+  "全幣種|lose": 75.12,
+  "BTC|win": 30.42,
+  "BTC|lose": 68.99,
+  "ETH|win": 30.65,
+  "ETH|lose": 82.46,
+  "SOL|win": 12.84,
+  "SOL|lose": 88.96,
+  "HYPE|win": 50.93,
+  "HYPE|lose": 73.71
  },
  "conf": {
   "全幣種": "中",
@@ -34,5 +34,5 @@
   "zone": "mid",
   "near": false
  },
- "last_time": "2026-11-17 01:11"
+ "last_time": "2026-11-17 04:50"
 }
