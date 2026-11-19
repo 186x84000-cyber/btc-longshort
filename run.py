@@ -155,6 +155,7 @@ def check_alerts(rows, cost, state, full):
 
 # ------------------------------------------------------------ 主流程
 def main():
+    global NOW, STAMP
     full = MODE in ("full", "test")
     groups = "ABCDEF" if full else "ABEF"
     recs, total, ok = hl.scan(groups, limit=300 if MODE == "test" else 0)
@@ -162,6 +163,9 @@ def main():
         msg = f"【系統通知】{STAMP} 資料抓取不完整（成功 {ok}/{total}），這次不發報告，下次排程會自動重試。"
         if MODE != "core": post(msg)
         raise SystemExit(msg)
+    # 掃描要一個多小時，報告上的時間改用掃描完成（＝發送）的時間
+    NOW = dt.datetime.now(TPE)
+    STAMP = NOW.strftime("%Y-%m-%d %H:%M")
     try: price = hl.btc_price()
     except Exception: price = None
     refresh_onchain()
