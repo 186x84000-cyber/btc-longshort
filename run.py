@@ -54,7 +54,8 @@ def refresh_onchain():
     today = NOW.strftime("%Y-%m-%d")
     if meta.get("fetched") == today or MODE == "test": return
     ok = True
-    for name, ep in (("lth", "lth-realized-price"), ("sth", "sth-realized-price"), ("price", "btc-price")):
+    for name, ep in (("lth", "lth-realized-price"), ("sth", "sth-realized-price"), ("price", "btc-price"),
+                     ("w100", "coins-addr-1K-100-BTC"), ("w1k", "coins-addr-10K-1K-BTC"), ("w10k", "coins-addr-10K-BTC")):
         try:
             r = requests.get(f"https://bitcoin-data.com/v1/{ep}", timeout=90)
             data = r.json()
@@ -68,11 +69,46 @@ def refresh_onchain():
     if ok: json.dump({"fetched": today}, open(meta_f, "w"))
 
 
+def blue_dots(P, S, now_price):
+    """藍點：鯨魚（100 枚以上地址）30 天淨減少，且價格低於短期持有者成本。
+    回傳 (每段的第一天清單, 現在是否成立)。交易所搬錢包造成單日變動 >1.5 萬枚後的 30 天不算。"""
+    W = [load_series("w100", "coinsAddr1Kto100btc"), load_series("w1k", "coinsAddr10Kto1Kbtc"), load_series("w10k", "coinsAddr10Kbtc")]
+    if not all(W): return [], False
+    days = sorted(set(W[0]) & set(W[1]) & set(W[2]))
+    wh = [sum(w[d] for w in W) for d in days]
+    bad = set()
+    for i in range(1, len(days)):
+        if abs(wh[i] - wh[i - 1]) > 15000: bad.update(range(i, i + 30))
+    sd = sorted(S)
+    def sth_on(d):
+        k = [x for x in sd if x <= d]
+        return S[k[-1]] if k else None
+    on = []
+    for i in range(30, len(days)):
+        d = days[i]
+        if i in bad or wh[i] - wh[i - 30] >= 0: continue
+        st_ = sth_on(d)
+        if d in P and st_ and P[d] < st_: on.append(i)
+    starts, last = [], -99
+    for i in on:
+        if i - last > 10: starts.append(days[i])
+        last = i
+    i = len(days) - 1
+    now_on = (i not in bad and wh[i] - wh[i - 30] < 0 and now_price < S[sd[-1]])
+    if now_on:  # 目前這一段用「現在」的大藍點表示，不重複畫
+        starts = [d for d in starts if (dt.date.fromisoformat(days[-1]) - dt.date.fromisoformat(d)).days > 30]
+    return starts, now_on
+
+
 def cost_block(now_price, make_chart):
     P, L, S = load_series("price", "btcPrice"), load_series("lth", "lthRealizedPrice"), load_series("sth", "sthRealizedPrice")
     if not (P and L and S): return None
     try:
-        if make_chart: return charts.draw_cost(P, L, S, now_price, STAMP, "out/06_cost.png")
+        if make_chart:
+            marks, now_on = blue_dots(P, S, now_price)
+            c = charts.draw_cost(P, L, S, now_price, STAMP, "out/06_cost.png", marks=marks, mark_now=now_on)
+            c["blue_now"] = now_on
+            return c
         return charts.cost_info(P, L, S, now_price)
     except Exception as e:  # noqa
         print("cost chart error", repr(e)[:300]); return None
@@ -193,6 +229,7 @@ def main():
     if cost:
         cost_line = (f"長線位置：價格比長期持有者成本高 {cost['gap']:.0f}%（{charts.ZNAME[cost['zone']]}），再跌 {cost['drop']:.0f}% 會跌破"
                      if cost["gap"] >= 0 else f"長線位置：價格比長期持有者成本低 {abs(cost['gap']):.0f}%（已跌破，{charts.ZNAME[cost['zone']]}）")
+        if cost.get("blue_now"): cost_line += "\n藍點條件成立：鯨魚 30 天減少＋價格低於短期成本（過去多在短線相對低點附近）"
 
     if full:
         if cost: files.append(("out/06_cost.png", "06_cost.png"))

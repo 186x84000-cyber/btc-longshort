@@ -19,6 +19,7 @@ LONG, SHORT, GRAY = "#2a78d6", "#d6453d", "#8a8985"
 LONG_DIM, SHORT_DIM = "#bcd3ef", "#f1c3bf"
 SURF, INK, INK2, GRID, BOX = "#fcfcfb", "#0b0b0b", "#52514e", "#e3e2de", "#f0efec"
 AMB = "#c98500"
+DOT = "#1f5fbf"
 ZB, ZA, ZR = "#dce8f8", "#f8ecd0", "#f6d6d3"
 ZNAME = {"strong": "強勢區", "mid": "中間區", "bear": "熊底區"}
 
@@ -157,7 +158,7 @@ def cost_info(P, L, S, now):
                 gap=100 * (now / lastL - 1), drop=100 * (1 - lastL / now), up=100 * (lastS / now - 1))
 
 
-def draw_cost(P, L, S, now, stamp, fname, title="06 細節圖｜長線位置：價格離長期持有者成本多遠"):
+def draw_cost(P, L, S, now, stamp, fname, title="06 細節圖｜長線位置：價格離長期持有者成本多遠", marks=None, mark_now=False):
     c = cost_info(P, L, S, now)
     today = dt.date.fromisoformat(stamp[:10])
     days = sorted(set(P) & set(L) & set(S)); x = [dt.date.fromisoformat(d) for d in days]
@@ -226,14 +227,14 @@ def draw_cost(P, L, S, now, stamp, fname, title="06 細節圖｜長線位置：�
     ax.scatter([today], [now], s=60, color=ZCOL[zn], zorder=6, edgecolor=SURF, linewidth=2)
     kw = dict(textcoords="offset points", va="center", annotation_clip=False)
     # 右側標籤：避免重疊，依數值排序後拉開距離
-    labs = sorted([(now, f"現在\n\\${now/1000:.1f}K", fpb(12), INK), (lastS, f"短期成本\n\\${lastS/1000:.1f}K", fp(10), INK2),
-                   (lastL, f"長期成本\n\\${lastL/1000:.1f}K", fpb(11), INK)], key=lambda z: z[0])
+    labs = sorted([(now, f"現在（即時）\n\\${now/1000:.1f}K", fpb(12), INK), (lastS, f"短期成本（{c['lth_date'][5:].replace('-','/')}）\n\\${lastS/1000:.1f}K", fp(10), INK2),
+                   (lastL, f"長期成本（{c['lth_date'][5:].replace('-','/')}）\n\\${lastL/1000:.1f}K", fpb(10.5), INK)], key=lambda z: z[0])
     ypix = [ax.transData.transform((0, v))[1] for v, *_ in labs]
     adj = ypix[:]
     for i in range(1, 3):
         if adj[i] - adj[i - 1] < 62: adj[i] = adj[i - 1] + 62
     for (v, txt, f, col), y0, y1 in zip(labs, ypix, adj):
-        ax.annotate(txt, (today, v), xytext=(12, (y1 - y0) * 72 / fig.dpi), fontproperties=f, color=col, **kw)
+        ax.annotate(txt, (today, v), xytext=(9, (y1 - y0) * 72 / fig.dpi), fontproperties=f, color=col, **kw)
     if abs(gap) >= 4:
         xm = today - dt.timedelta(days=45)
         ax.annotate("", (xm, lastL), (xm, now), arrowprops=dict(arrowstyle="<->", color=INK, lw=1.3))
@@ -246,15 +247,23 @@ def draw_cost(P, L, S, now, stamp, fname, title="06 細節圖｜長線位置：�
         i0 = days.index(below[len(below) // 4])
         ax.annotate(f"上次跌破（{below[0][:4]} 熊市）\n最深低於成本 {abs(mn):.0f}%\n{below[-1][:7]} 才站回", (x[i0], P[days[i0]]), xytext=(70, 62),
                     textcoords="offset points", fontproperties=fp(10), color=INK, va="center", arrowprops=dict(arrowstyle="-", color=INK2, lw=0.8))
+    for d in (marks or []):
+        if d in P:
+            ax.scatter([dt.date.fromisoformat(d)], [P[d]], s=75, color=DOT, zorder=7, edgecolor=SURF, linewidth=2)
+    if mark_now:
+        ax.scatter([today], [now], s=95, color=DOT, zorder=8, edgecolor=INK, linewidth=1.6)
     ax.set_title("價格走勢與兩條成本線（價格線顏色＝當時所在區域）", fontproperties=fpb(12.5), color=INK, loc="left", pad=10)
 
     fig.patches.append(FancyBboxPatch((0.04, 0.058), 0.92, 0.118, boxstyle="round,pad=0,rounding_size=0.008", transform=fig.transFigure, fc=BOX, ec="none"))
     fig.text(0.058, 0.158, "怎麼看這張圖", fontproperties=fpb(12), color=INK, va="center")
     rows = [(INK, "黑色價格線", "在強勢區：市場熱，近期買進的人賺錢"), (AMB, "橘色價格線", "在中間區：近期買進的人賠錢，但長期持有者還在賺"),
             (SHORT, "紅色價格線", "在熊底區：跌破長期成本，過去出現在熊市底部，但可能再磨好幾個月")]
+    if marks:
+        rows = rows + [(DOT, "藍點", "鯨魚 30 天減少＋價格低於短期成本：過去多出現在短線相對低點附近")]
     for i, (col, a_, b_) in enumerate(rows):
-        y = 0.133 - i * 0.025
-        fig.patches.append(plt.Rectangle((0.058, y - 0.003), 0.03, 0.006, transform=fig.transFigure, color=col))
+        y = (0.136 - i * 0.022) if marks else (0.133 - i * 0.025)
+        if a_ == "藍點": fig.lines.append(plt.Line2D([0.073], [y], marker="o", ms=8, color=col, transform=fig.transFigure))
+        else: fig.patches.append(plt.Rectangle((0.058, y - 0.003), 0.03, 0.006, transform=fig.transFigure, color=col))
         fig.text(0.098, y, a_, fontproperties=fpb(10.5), color=INK, va="center"); fig.text(0.225, y, b_, fontproperties=fp(10.5), color=INK, va="center")
     fig.text(0.04, 0.026, f"資料：BGeometrics 免費 API（近 4 年；成本線延遲約 7 天，目前到 {c['lth_date']}，之後以虛線延伸）；價格取自 {stamp}（台北）。\n屬長線背景參考，不是短線買賣訊號。",
              fontproperties=fp(8.8), color=INK2, linespacing=1.5)
