@@ -16,19 +16,21 @@ NOW = dt.datetime.now(TPE)
 STAMP = NOW.strftime("%Y-%m-%d %H:%M")
 WEBHOOK = os.environ.get("DISCORD_WEBHOOK", "").strip()
 STATE_F, HIST_F, COST_F, OC = "data/state.json", "data/history.csv", "data/cost_history.csv", "data/onchain"
-BIG_MOVE, MIN_PEOPLE, NEAR_PCT = 15, 30, 5   # 警報門檻：變動百分點、最少人數、接近成本線的距離 %
+BIG_MOVE, MIN_PEOPLE, NEAR_PCT = 15, 30, 5
+PING = True   # 藍點出現／結束時用 @everyone 讓手機跳通知；不想要改成 False   # 警報門檻：變動百分點、最少人數、接近成本線的距離 %
 os.makedirs("out", exist_ok=True); os.makedirs(OC, exist_ok=True)
 
 
 # ------------------------------------------------------------ Discord
-def post(text, files=()):
+def post(text, files=(), ping=False):
     print("=== MESSAGE ===\n" + text + "\nfiles:", [f for f, _ in files], flush=True)
     if not WEBHOOK:
         print("(未設定 DISCORD_WEBHOOK，只存檔不發送)"); return
     fs = {f"files[{i}]": (name, open(path, "rb"), "image/png") for i, (path, name) in enumerate(files)}
     for attempt in range(4):
         try:
-            r = requests.post(WEBHOOK, data={"payload_json": json.dumps({"content": text[:1900]})}, files=fs or None, timeout=120)
+            r = requests.post(WEBHOOK, data={"payload_json": json.dumps({"content": (("@everyone " if ping and PING else "") + text)[:1900],
+                                                                   "allowed_mentions": {"parse": ["everyone"] if ping and PING else []}})}, files=fs or None, timeout=120)
             if r.status_code in (200, 204): print("discord ok"); return
             print("discord status", r.status_code, r.text[:200])
             if r.status_code == 429: time.sleep(float(r.json().get("retry_after", 5)) + 1)
@@ -95,9 +97,12 @@ def blue_dots(P, S, now_price):
         last = i
     i = len(days) - 1
     now_on = (i not in bad and wh[i] - wh[i - 30] < 0 and now_price < S[sd[-1]])
+    since = None
     if now_on:  # 目前這一段用「現在」的大藍點表示，不重複畫
-        starts = [d for d in starts if (dt.date.fromisoformat(days[-1]) - dt.date.fromisoformat(d)).days > 30]
-    return starts, now_on
+        recent = [d for d in starts if (dt.date.fromisoformat(days[-1]) - dt.date.fromisoformat(d)).days <= 30]
+        since = recent[-1] if recent else days[-1]
+        starts = [d for d in starts if d not in recent]
+    return starts, now_on, since
 
 
 def cost_block(now_price, make_chart):
@@ -105,9 +110,9 @@ def cost_block(now_price, make_chart):
     if not (P and L and S): return None
     try:
         if make_chart:
-            marks, now_on = blue_dots(P, S, now_price)
-            c = charts.draw_cost(P, L, S, now_price, STAMP, "out/06_cost.png", marks=marks, mark_now=now_on)
-            c["blue_now"] = now_on
+            marks, now_on, since = blue_dots(P, S, now_price)
+            c = charts.draw_cost(P, L, S, now_price, STAMP, "out/06_cost.png", marks=marks, mark_now=now_on, blue_since=since)
+            c["blue_now"], c["blue_since"] = now_on, since
             return c
         return charts.cost_info(P, L, S, now_price)
     except Exception as e:  # noqa
@@ -229,7 +234,16 @@ def main():
     if cost:
         cost_line = (f"長線位置：價格比長期持有者成本高 {cost['gap']:.0f}%（{charts.ZNAME[cost['zone']]}），再跌 {cost['drop']:.0f}% 會跌破"
                      if cost["gap"] >= 0 else f"長線位置：價格比長期持有者成本低 {abs(cost['gap']):.0f}%（已跌破，{charts.ZNAME[cost['zone']]}）")
-        if cost.get("blue_now"): cost_line += "\n藍點條件成立：鯨魚 30 天減少＋價格低於短期成本（過去多在短線相對低點附近）"
+    blue_head, blue_change = "", None
+    if cost and cost.get("blue_now"):
+        sd_ = dt.date.fromisoformat(cost["blue_since"]); nday = (NOW.date() - sd_).days + 1
+        blue_head = f"🔵 **藍點成立中**（{sd_.month}/{sd_.day} 起，第 {nday} 天）：鯨魚 30 天減少＋價格低於短期成本，過去多出現在短線相對低點附近\n"
+    if cost and MODE != "test":
+        bs = state.setdefault("blue", {})
+        was = bs.get("on", False)
+        if cost.get("blue_now") and not was: blue_change = "on"
+        elif was and not cost.get("blue_now"): blue_change = "off"
+        bs["on"] = bool(cost.get("blue_now")); bs["since"] = cost.get("blue_since")
 
     if full:
         if cost: files.append(("out/06_cost.png", "06_cost.png"))
@@ -238,15 +252,24 @@ def main():
             charts.draw_detail(recs, r["coin"], f"細節圖｜{r['name']}（可信度{r['conf']}）", STAMP, fn)
             files.append((fn, f"detail_{i}.png"))
         label = "測試報告" if MODE == "test" else ("早報" if NOW.hour < 14 else "晚報")
-        text = f"**多空比{label}** {STAMP}\n{head}\n{cost_line}"
+        text = f"{blue_head}**多空比{label}** {STAMP}\n{head}\n{cost_line}"
         if alerts: text += "\n\n**【警報】**\n" + "\n".join("・" + a for a in alerts)
         if MODE == "test": text += "\n（這是小樣本測試，數字不具參考性，只用來確認系統能正常發送。）"
         post(text, files)
     elif alerts:
         if cost_alert and cost: files.append(("out/06_cost.png", "06_cost.png"))
-        post(f"**【警報】** {STAMP}\n" + "\n".join("・" + a for a in alerts) + f"\n\n{cost_line}\n（警報快照只更新贏家與輸家，完整報告請看早晚報）", files)
+        post(f"{blue_head}**【警報】** {STAMP}\n" + "\n".join("・" + a for a in alerts) + f"\n\n{cost_line}\n（警報快照只更新贏家與輸家，完整報告請看早晚報）", files)
     else:
         print("core check: 沒有警報，不發送")
+
+    # 藍點出現或結束：另外發一則醒目通知（含 @everyone，讓手機跳通知）
+    if blue_change == "on":
+        post(f"🔵🔵🔵 **藍點出現** {STAMP}\n鯨魚 30 天減少＋價格低於短期持有者成本（價格 ${cost['price']:,.0f}，短期成本 ${cost['sth']:,.0f}）\n"
+             "過去 4 年出現 5 次，多在短線相對低點附近；但進場後常先再跌 4%～17%，不是買進保證。",
+             [("out/06_cost.png", "06_cost.png")], ping=True)
+    elif blue_change == "off":
+        reason = "價格回到短期成本之上" if cost["price"] >= cost["sth"] else "鯨魚 30 天轉為增加"
+        post(f"⚪ **藍點結束** {STAMP}\n原因：{reason}（價格 ${cost['price']:,.0f}，短期成本 ${cost['sth']:,.0f}）", ping=True)
 
     if MODE != "test":
         state["last_time"] = STAMP

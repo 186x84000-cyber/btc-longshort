@@ -55,6 +55,10 @@ def draw_summary(rows, head, stamp, cost, fname, core_only=False, tag=""):
         l2 = (f"再跌 {cost['drop']:.0f}% 會跌破成本線 \\${cost['lth']:,.0f}" if g >= 0 else f"長期持有者成本 \\${cost['lth']:,.0f}")
         ax.text(30, H - 22.6, l1, fontproperties=fpb(12.5), color=INK, va="center")
         ax.text(30, H - 26.6, l2 + f"　目前價格 \\${cost['price']:,.0f}", fontproperties=fp(11), color=INK, va="center")
+        if cost.get("blue_now"):
+            bd = dt.date.fromisoformat(cost["blue_since"])
+            ax.text(94, H - 22.6, f"● 藍點成立中（{bd.month}/{bd.day} 起）", ha="right", va="center", fontproperties=fpb(10.5), color="white",
+                    bbox=dict(boxstyle="round,pad=0.35", fc="#1f5fbf", ec="none"))
     else:
         ax.text(30, H - 24.6, "成本線資料暫時無法取得", fontproperties=fp(11.5), color=INK2, va="center")
     X = [4, 22, 42, 62, 84]
@@ -158,7 +162,7 @@ def cost_info(P, L, S, now):
                 gap=100 * (now / lastL - 1), drop=100 * (1 - lastL / now), up=100 * (lastS / now - 1))
 
 
-def draw_cost(P, L, S, now, stamp, fname, title="06 細節圖｜長線位置：價格離長期持有者成本多遠", marks=None, mark_now=False):
+def draw_cost(P, L, S, now, stamp, fname, title="06 細節圖｜長線位置：價格離長期持有者成本多遠", marks=None, mark_now=False, blue_since=None):
     c = cost_info(P, L, S, now)
     today = dt.date.fromisoformat(stamp[:10])
     days = sorted(set(P) & set(L) & set(S)); x = [dt.date.fromisoformat(d) for d in days]
@@ -251,7 +255,13 @@ def draw_cost(P, L, S, now, stamp, fname, title="06 細節圖｜長線位置：�
         if d in P:
             ax.scatter([dt.date.fromisoformat(d)], [P[d]], s=75, color=DOT, zorder=7, edgecolor=SURF, linewidth=2)
     if mark_now:
-        ax.scatter([today], [now], s=95, color=DOT, zorder=8, edgecolor=INK, linewidth=1.6)
+        ax.scatter([today], [now], s=420, color=DOT, alpha=0.18, zorder=7, linewidth=0)
+        ax.scatter([today], [now], s=110, color=DOT, zorder=8, edgecolor=INK, linewidth=1.6)
+        if blue_since:
+            bd = dt.date.fromisoformat(blue_since)
+            ax.text(0.985, 0.985, f"● 藍點成立中（{bd.month}/{bd.day} 起）", transform=ax.transAxes, ha="right", va="top",
+                    fontproperties=fpb(12), color="white", zorder=9,
+                    bbox=dict(boxstyle="round,pad=0.45", fc=DOT, ec="none"))
     ax.set_title("價格走勢與兩條成本線（價格線顏色＝當時所在區域）", fontproperties=fpb(12.5), color=INK, loc="left", pad=10)
 
     fig.patches.append(FancyBboxPatch((0.04, 0.058), 0.92, 0.118, boxstyle="round,pad=0,rounding_size=0.008", transform=fig.transFigure, fc=BOX, ec="none"))
